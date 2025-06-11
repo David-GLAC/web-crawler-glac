@@ -14,13 +14,20 @@ import re
 from urllib.parse import urlparse
 from collections import defaultdict
 
+
+
 # MUST BE FIRST: Configure Streamlit page
 st.set_page_config(
     page_title="Web Crawler App",
     page_icon="image/web-crawler.png",
     layout="wide"
 )
+# Load custom CSS
+def local_css(file_name):
+    with open(file_name) as f:
+        st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
 
+local_css("style.css")
 # Load environment variables
 load_dotenv()
 
@@ -198,7 +205,7 @@ async def crawl_links_and_content(start_url, max_depth=1, max_pages=5):
                 max_pages=max_pages,
                 include_external=False                   
             ),
-            verbose=False
+            verbose=True
         )
         
         async with AsyncWebCrawler() as crawler:
@@ -395,26 +402,23 @@ def show_auth_page():
 
 def show_main_app():
     # Header
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        st.image("image/web-crawler.png")
-        st.title("Web Crawler App")
-    with col2:
-        if st.button("Sign Out"):
+    if st.button("Sign Out"):
             sign_out()
             st.session_state.authenticated = False
             st.session_state.user = None
             st.rerun()
-    
-    # User info
+
+        # User info
     if st.session_state.user:
         st.info(f"Welcome, {st.session_state.user.email} 👋")
-    
+
+    st.title("Web Crawler & Scraper 🚀")
+
     # Main tabs
     tab1, tab2, tab3, tab4 = st.tabs([
-        "🌐 Crawl Website (URLs + Content)",
-        "📄 Crawl Full Content (Single or Multiple URLs)",
-        "🎯 Targeted Content Crawl (Title, Meta, Keywords...)",
+        "🌐 Crawl Website",
+        "📄 Crawl Full Content (URLs)",
+        "🎯 Targeted Content Crawl (Attribute) ",
         "📊 Crawl History"
     ])
 
@@ -430,16 +434,14 @@ def show_main_app():
         show_crawl_history()     
 
 def show_crawl_selector():
-    st.markdown("### Targeted Content Crawl")
     st.info("Extract specific elements such as `<title>`, meta description, keywords, headings, or custom CSS selectors.")
 
 def show_crawl_url():
-    st.markdown("### Crawl Full Content")
     st.info("Enter a single URL or upload a `.txt` file containing multiple URLs to extract the full page content.")
 
     # Input form
     with st.form("url_crawl_form"):
-        url = st.text_input("Enter URL:", placeholder="https://example.com")
+        url = st.text_input("Enter URL:", placeholder="🔗 https://example.com")
         uploaded_file = st.file_uploader("Or upload a TXT file with URLs", type=["txt"])
         submit_button = st.form_submit_button("Start Crawling", type="primary")
 
@@ -465,7 +467,7 @@ def show_crawl_url():
             # Crawl each URL
             for i, url in enumerate(urls_to_crawl):
                 try:
-                    status_text.text(f"🕷️ Crawling {i+1}/{len(urls_to_crawl)}: {url}")
+                    status_text.text(f"⚡️ Crawling {i+1}/{len(urls_to_crawl)}: {url}")
                     progress_bar.progress((i+1)/len(urls_to_crawl))
                     
                     # Perform crawling
@@ -535,7 +537,6 @@ def show_crawl_url():
             }
             
             # Preview combined content
-            st.balloons()
             st.success(f"🎉 Successfully crawled {len(successful)} URLs")
             with st.expander("👀 Preview content...", expanded=False):
                 st.write("**Meta Descriptions:**")
@@ -579,22 +580,35 @@ def show_crawl_url():
             
             elif download_format == "PDF":
                 from reportlab.lib.pagesizes import letter
+                from reportlab.pdfbase import pdfmetrics
+                from reportlab.pdfbase.ttfonts import TTFont
                 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer
-                from reportlab.lib.styles import getSampleStyleSheet
+                from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+                from reportlab.lib.enums import TA_LEFT
+                pdfmetrics.registerFont(TTFont('DejaVuSans', 'fonts/DejaVuSans.ttf'))
+                
                 import io
                 
                 def generate_pdf():
                     buffer = io.BytesIO()
                     doc = SimpleDocTemplate(buffer, pagesize=letter)
                     styles = getSampleStyleSheet()
+                    vn_style = ParagraphStyle(
+                        'Vietnamese',
+                        parent=styles['Normal'],
+                        fontName='DejaVuSans',
+                        fontSize=10,
+                        leading=12,
+                        alignment=TA_LEFT
+                    )
                     story = []
                     
                     for item in successful:
-                        story.append(Paragraph(f"<b>URL:</b> {item['url']}", styles['Normal']))
-                        story.append(Paragraph(f"<b>Title:</b> {item.get('title', 'No title')}", styles['Normal']))
-                        story.append(Paragraph(f"<b>Meta Description:</b> {item.get('meta_description', 'No description')}", styles['Normal']))
-                        story.append(Paragraph("<b>Content:</b>", styles['Normal']))
-                        story.append(Paragraph(item.get('content', 'No content'), styles['Normal']))
+                        story.append(Paragraph(f"<b>URL:</b> {item['url']}", vn_style))
+                        story.append(Paragraph(f"<b>Title:</b> {item.get('title', 'No title')}", vn_style))
+                        story.append(Paragraph(f"<b>Meta Description:</b> {item.get('meta_description', 'No description')}", vn_style))
+                        story.append(Paragraph("<b>Content:</b>", vn_style))
+                        story.append(Paragraph(item.get('content', 'No content'), vn_style))
                         story.append(Spacer(1, 12))
                     
                     doc.build(story)
@@ -612,22 +626,21 @@ def show_crawl_url():
                 )
                     
 def show_crawl_interface():
-    st.markdown("### Crawl Website (URLs + Content)")
     st.info("Automatically crawl a base URL and its internal links, collecting the full content of each page.")
     
     # Input form
-    url = st.text_input("Website URL to crawl:", placeholder="https://example.com")
+    url = st.text_input("Website URL to crawl:", placeholder="🔗 https://example.com")
     
     # Advanced options
     with st.expander("🚀 Advanced Options"):
         max_depth = st.number_input("Max crawl depth", min_value=1, max_value=5, value=1, step=1)
-        max_pages = st.number_input("Max number of pages to crawl", min_value=1, max_value=1000, value=50, step=20)
+        max_pages = st.number_input("Max number of pages to crawl", min_value=1, max_value=3000, value=50, step=20)
         
     crawl_button = st.button("Start crawler", type="primary")
 
     if crawl_button and url:
         if url.startswith(('http://', 'https://')):
-            with st.spinner("🕷️ Crawling website and collecting content... This may take a while..."):      
+            with st.spinner("⚡️ Crawling website and collecting content... This may take a while..."):      
                 # Run async crawl function
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
@@ -697,7 +710,7 @@ def show_crawl_interface():
             st.warning("Please enter a valid URL starting with http:// or https://")
 
 def show_crawl_history():
-    st.markdown("### Crawl History")
+    
     st.info("View, filter, and download records of previously crawled websites and content.")
     
     if st.session_state.user:
