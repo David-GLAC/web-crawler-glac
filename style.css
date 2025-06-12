@@ -19,6 +19,11 @@ p {
     font-size: 14px;
     font-weight: 500;
 }
+ul, li{
+    font-family: "Poppins", sans-serif;
+    font-size: 14px !important;
+}
+
 
 h1 {
     font-family: "Poppins", sans-serif;
