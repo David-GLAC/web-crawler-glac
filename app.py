@@ -94,36 +94,6 @@ def clean_content(html: str, url: str) -> str:
         return html
 
 def extract_main_content(html: str, url: str, css_selector: str = None) -> str:
-    """Extract content with proper table formatting when table selector is used"""
-    if not html:
-        return ""
-
-    try:
-        soup = BeautifulSoup(html, 'html.parser')
-
-        # Special handling for table selector
-        if css_selector and css_selector.lower().strip() in ["table", "table tr", "table td"]:
-            return extract_tables_formatted(soup)
-
-        # Normal CSS selector handling
-        if css_selector:
-            selected_elements = soup.select(css_selector)
-            if selected_elements:
-                return "\n".join([
-                    element.get_text(" ", strip=True) 
-                    for element in selected_elements
-                ])
-
-        # Default content extraction
-        for element in soup(['script', 'style', 'nav', 'footer']):
-            element.decompose()
-        return soup.get_text(" ", strip=True)
-
-    except Exception as e:
-        print(f"Error extracting content: {str(e)}")
-        return ""
-
-def extract_main_content(html: str, url: str, css_selector: str = None) -> str:
     """Extract and clean content with better whitespace handling"""
     if not html:
         return ""
