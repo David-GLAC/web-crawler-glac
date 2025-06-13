@@ -94,26 +94,223 @@ def clean_content(html: str, url: str) -> str:
         return html
 
 def extract_main_content(html: str, url: str, css_selector: str = None) -> str:
+    """Extract content with proper table formatting when table selector is used"""
+    if not html:
+        return ""
+
+    try:
+        soup = BeautifulSoup(html, 'html.parser')
+
+        # Special handling for table selector
+        if css_selector and css_selector.lower().strip() in ["table", "table tr", "table td"]:
+            return extract_tables_formatted(soup)
+
+        # Normal CSS selector handling
+        if css_selector:
+            selected_elements = soup.select(css_selector)
+            if selected_elements:
+                return "\n".join([
+                    element.get_text(" ", strip=True) 
+                    for element in selected_elements
+                ])
+
+        # Default content extraction
+        for element in soup(['script', 'style', 'nav', 'footer']):
+            element.decompose()
+        return soup.get_text(" ", strip=True)
+
+    except Exception as e:
+        print(f"Error extracting content: {str(e)}")
+        return ""
+
+def extract_main_content(html: str, url: str, css_selector: str = None) -> str:
+    """Extract and clean content with better whitespace handling"""
     if not html:
         return ""
     try:
         soup = BeautifulSoup(html, 'html.parser')
+        # 1. CSS Selector mode
         if css_selector:
-            elements = soup.select(css_selector)
-            if elements:
-                return "\n\n".join(re.sub(r'\s+', ' ', elem.get_text(separator='\n', strip=True)).strip() for elem in elements)
-        article = soup.find('article') or soup.find('main')
-        if article:
-            return clean_content(str(article), url)
-        candidates = [(elem, len(elem.get_text(strip=True))) for elem in soup.find_all(['div', 'section'])
-                      if len(elem.get_text(strip=True)) > 200 and
-                      len(elem.find_all('a')) / (len(elem.get_text(strip=True)) / 100 or 1) < 2]
-        if candidates:
-            return clean_content(str(max(candidates, key=lambda x: x[1])[0]), url)
-        return clean_content(html, url)
+            selected_elements = soup.select(css_selector)
+            if selected_elements:
+                content = []
+                for idx, element in enumerate(selected_elements):
+                    # Check if the element itself is a table
+                    if element.name == 'table':
+                        # Process the table element directly
+                        all_rows = []
+                        for row in element.find_all('tr'):
+                            row_data = []
+                            for cell in row.find_all(['th', 'td']):
+                                cell_text = cell.get_text(" ", strip=True)
+                                cell_text = clean_whitespace(cell_text)
+                                row_data.append(cell_text if cell_text else "-")
+                            all_rows.append(row_data)
+                        
+                        if all_rows:
+                            # Calculate max width for each column
+                            max_cols = max(len(row) for row in all_rows) if all_rows else 0
+                            col_widths = []
+                            for col_idx in range(max_cols):
+                                max_width = 0
+                                for row in all_rows:
+                                    if col_idx < len(row):
+                                        max_width = max(max_width, len(row[col_idx]))
+                                col_widths.append(min(max_width, 30))  # Limit to 30 chars
+                            
+                            # Format table with proper alignment
+                            formatted_rows = []
+                            for row_idx, row in enumerate(all_rows):
+                                formatted_cells = []
+                                for col_idx, cell in enumerate(row):
+                                    if col_idx < len(col_widths):
+                                        formatted_cells.append(cell.ljust(col_widths[col_idx]))
+                                    else:
+                                        formatted_cells.append(cell)
+                                formatted_rows.append(" | ".join(formatted_cells))
+                                
+                                # Add separator after header row
+                                if row_idx == 0 and len(all_rows) > 1:
+                                    separator = " | ".join("-" * width for width in col_widths[:len(row)])
+                                    formatted_rows.append(separator)
+                            
+                            content.append(f"Table {idx+1}:\n" + "\n".join(formatted_rows))
+                    else:
+                        # Handle tables within selected elements
+                        element_tables = []
+                        for i, table in enumerate(element.find_all('table')):
+                            # Calculate column widths for better formatting
+                            all_rows = []
+                            for row in table.find_all('tr'):
+                                row_data = []
+                                for cell in row.find_all(['th', 'td']):
+                                    cell_text = cell.get_text(" ", strip=True)
+                                    cell_text = clean_whitespace(cell_text)
+                                    row_data.append(cell_text if cell_text else "-")
+                                all_rows.append(row_data)
+                            
+                            if all_rows:
+                                # Calculate max width for each column
+                                max_cols = max(len(row) for row in all_rows) if all_rows else 0
+                                col_widths = []
+                                for col_idx in range(max_cols):
+                                    max_width = 0
+                                    for row in all_rows:
+                                        if col_idx < len(row):
+                                            max_width = max(max_width, len(row[col_idx]))
+                                    col_widths.append(min(max_width, 30))  # Limit to 30 chars
+                                
+                                # Format table with proper alignment
+                                formatted_rows = []
+                                for row_idx, row in enumerate(all_rows):
+                                    formatted_cells = []
+                                    for col_idx, cell in enumerate(row):
+                                        if col_idx < len(col_widths):
+                                            formatted_cells.append(cell.ljust(col_widths[col_idx]))
+                                        else:
+                                            formatted_cells.append(cell)
+                                    formatted_rows.append(" | ".join(formatted_cells))
+                                    
+                                    # Add separator after header row
+                                    if row_idx == 0 and len(all_rows) > 1:
+                                        separator = " | ".join("-" * width for width in col_widths[:len(row)])
+                                        formatted_rows.append(separator)
+                                
+                                element_tables.append(f"Table {i+1}:\n" + "\n".join(formatted_rows))
+                            
+                            # Remove table from element to avoid duplication
+                            table.decompose()
+                        
+                        # Get remaining text content
+                        text = element.get_text(" ", strip=True)
+                        text = clean_whitespace(text)
+                        
+                        # Combine text and tables for this element
+                        if element_tables:
+                            text += "\n\n" + "\n\n".join(element_tables)
+                        content.append(text)
+                return "\n\n".join(content)
+        
+        # 2. Full content mode with table preservation
+        # Remove unwanted elements but keep tables
+        for element in soup(['script', 'style', 'nav', 'footer', 'iframe', 'noscript']):
+            element.decompose()
+        
+        # Special handling for tables with improved formatting
+        tables = []
+        for i, table in enumerate(soup.find_all('table')):
+            # Collect all rows first to calculate column widths
+            all_rows = []
+            for row in table.find_all('tr'):
+                row_data = []
+                for cell in row.find_all(['th', 'td']):
+                    cell_text = cell.get_text(" ", strip=True)
+                    cell_text = clean_whitespace(cell_text)
+                    row_data.append(cell_text if cell_text else "-")
+                all_rows.append(row_data)
+            
+            if all_rows:
+                # Calculate max width for each column
+                max_cols = max(len(row) for row in all_rows) if all_rows else 0
+                col_widths = []
+                for col_idx in range(max_cols):
+                    max_width = 0
+                    for row in all_rows:
+                        if col_idx < len(row):
+                            max_width = max(max_width, len(row[col_idx]))
+                    col_widths.append(min(max_width, 30))  # Limit to 30 chars
+                
+                # Format table with proper alignment
+                formatted_rows = []
+                for row_idx, row in enumerate(all_rows):
+                    formatted_cells = []
+                    for col_idx, cell in enumerate(row):
+                        if col_idx < len(col_widths):
+                            formatted_cells.append(cell.ljust(col_widths[col_idx]))
+                        else:
+                            formatted_cells.append(cell)
+                    formatted_rows.append(" | ".join(formatted_cells))
+                    
+                    # Add separator after header row
+                    if row_idx == 0 and len(all_rows) > 1:
+                        separator = " | ".join("-" * width for width in col_widths[:len(row)])
+                        formatted_rows.append(separator)
+                
+                tables.append(f"Table {i+1}:\n" + "\n".join(formatted_rows))
+            
+            # Remove table from soup to avoid duplication in text content
+            table.decompose()
+        
+        # Get regular text content
+        text = soup.get_text(" ", strip=True)
+        text = clean_whitespace(text)
+        
+        # Combine tables and text
+        if tables:
+            text += "\n\n" + "\n\n".join(tables)
+        return text
     except Exception as e:
-        st.warning(f"Content extraction error for {url}: {str(e)}")
-        return clean_content(html, url)
+        print(f"Content extraction error: {str(e)}")
+        return clean_whitespace(BeautifulSoup(html, 'html.parser').get_text(" ", strip=True))
+
+def clean_whitespace(text: str) -> str:
+    """Normalize whitespace and line breaks"""
+    if not text:
+        return ""
+    
+    # Replace any whitespace sequence with single space
+    text = re.sub(r'\s+', ' ', text)
+    
+    # Smart paragraph breaks (after periods followed by capital letters)
+    text = re.sub(r'([:!?])\s+([A-Z])', r'\1\n\2', text)
+    
+    # Remove space before punctuation
+    text = re.sub(r'\s+([,:;])', r'\1', text)
+    
+    # Clean up multiple newlines
+    text = re.sub(r'\n\s*\n', '\n\n', text)
+    
+    return text.strip()
 
 # URL utilities
 def normalize_url(url: str) -> str:
@@ -173,7 +370,7 @@ async def crawl_links_and_content(start_url: str, max_depth: int = 1, max_pages:
     if not start_url.startswith(('http://', 'https://')):
         return [{"success": False, "error": "Invalid URL format", "url": start_url, "timestamp": datetime.now().isoformat()}]
     
-    start_time = time.time()
+    start_time = time.time()    
     crawled_urls, to_crawl, all_results = set(), [normalize_url(start_url)], []
     semaphore = asyncio.Semaphore(min(10, max_pages))
     connector = aiohttp.TCPConnector(limit=min(10, max_pages), limit_per_host=5, keepalive_timeout=40, enable_cleanup_closed=True)
